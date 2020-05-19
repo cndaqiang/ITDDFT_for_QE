@@ -693,6 +693,13 @@ SUBROUTINE electrons_scf ( printout, exxen )
         ! IF ( my_pool_id == root_pool ) 
         CALL mix_rho ( rho, rhoin, mixing_beta, dr2, tr2_min, iter, nmix, &
                        iunmix, conv_elec )
+
+!! begin modification
+
+        IF(run_ITDDFT) CALL scf_type_COPY (rho,rhoin)
+
+!! end modification
+
         CALL bcast_scf_type ( rhoin, root_pool, inter_pool_comm )
         CALL mp_bcast ( dr2, root_pool, inter_pool_comm )
         CALL mp_bcast ( conv_elec, root_pool, inter_pool_comm )
@@ -1381,16 +1388,17 @@ SUBROUTINE itddft()
   USE becmod,               ONLY : becp, calbec, allocate_bec_type, deallocate_bec_type, bec_type
   USE mp,                    ONLY : mp_max  
   IMPLICIT NONE
-  REAL(dp) :: dt, max_Ke
+  REAL(dp) :: dt
+  REAL(dp), SAVE :: max_Ke
   INTEGER :: npw, ik, ibnd, jbnd, istep, m, kdmx
   COMPLEX(DP) :: zdotc
-  LOGICAL :: firstIter = .TRUE.
+  LOGICAL, SAVE :: firstIter = .TRUE.
   external h_psi, s_psi, s_1psi, lr_sm1_psi
+  !$OMP THREADPRIVATE( max_Ke, firstIter ) 
   CALL allocate_bec_type ( nkb, nbnd, becp, intra_bgrp_comm )
 
     IF(firstIter) THEN
       CALL initialize_extensive() 
-      firstIter = .FALSE.
       write(stdout,*) " run_ITDDFT       "    ,    run_ITDDFT  
       write(stdout,*) " extensive_ITDDFT "    ,    extensive_ITDDFT  
       write(stdout,*) " g_dependant_dtau "    ,    g_dependant_dtau
@@ -1398,13 +1406,11 @@ SUBROUTINE itddft()
       write(stdout,*) " switch_iter      "    ,    switch_iter 
       write(stdout,*) " dtau             "    ,    dtau   
       write(stdout,*) " freeze_band      "    ,    freeze_band  
-    END IF
 
-    dt = dt * 1.d-18 / (2.d0*au_sec)           ! change from femto-second to a.u. (Rydberg unit)
-    dt = 1/g2kin(npwx)
+      !dt = dt * 1.d-18 / (2.d0*au_sec)           ! change from femto-second to a.u. (Rydberg unit)
+      !dt = 1/g2kin(npwx)
 
-
-    IF(idum==1) THEN    
+      firstIter = .FALSE.
       DO ik = 1, nks
         CALL g2_kin(ik)
         npw = ngk(ik)
@@ -1455,7 +1461,7 @@ SUBROUTINE itddft()
           END IF
 
       END IF
-  
+
       CALL orthonormalize(npw)
 
       CALL compute_band_energy(npw,.FALSE.)
@@ -1737,7 +1743,6 @@ SUBROUTINE initialize_extensive()
       END IF         
     END IF
 
-    WRITE(stdout,*) "itddft 1.3"
 
     ! needed when freezing lower electrons
     DO ik=1, nks
@@ -2002,6 +2007,7 @@ CONTAINS
     ! counters
     REAL(DP), ALLOCATABLE :: ps(:,:)
     LOGICAL, SAVE :: first_entry = .true.
+    !$OMP THREADPRIVATE(first_entry)
     !
     ! Initialize spsi : spsi = psi
 
